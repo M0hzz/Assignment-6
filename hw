@@ -1,0 +1,123 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <pthread.h>
+#include <unistd.h>
+#include <string.h>
+
+#define MAX_MESSAGE_LEN 100
+#define NUM_MESSAGES 5
+
+// Shared data structure
+typedef struct {
+    char message[MAX_MESSAGE_LEN];
+    int message_ready;  // Flag to indicate if a new message is ready
+    int done;           // Flag to indicate when all messages have been sent
+} shared_data_t;
+
+// Global shared data and mutex
+shared_data_t shared_data;
+pthread_mutex_t data_mutex;
+pthread_cond_t data_cond;
+
+// Writer thread function
+void *writer_thread(void *arg) {
+    const char *messages[] = {
+        "Message 1: Hello from writer!",
+        "Message 2: Shared memory communication",
+        "Message 3: Using pthread mutex for synchronization",
+        "Message 4: And condition variables for signaling",
+        "Message 5: This is the final message"
+    };
+    
+    for (int i = 0; i < NUM_MESSAGES; i++) {
+
+        sleep(1);
+        
+
+        pthread_mutex_lock(&data_mutex);
+        
+        // Write to shared data
+        strncpy(shared_data.message, messages[i], MAX_MESSAGE_LEN - 1);
+        shared_data.message[MAX_MESSAGE_LEN - 1] = '\0';  // Ensure null termination
+        shared_data.message_ready = 1;
+        
+        printf("Writer: Wrote message: %s\n", shared_data.message);
+        
+        // Signal reader that data is ready
+        pthread_cond_signal(&data_cond);
+        
+        // Release mutex
+        pthread_mutex_unlock(&data_mutex);
+    }
+    
+    // Indicate we're done writing all messages
+    pthread_mutex_lock(&data_mutex);
+    shared_data.done = 1;
+    pthread_cond_signal(&data_cond);
+    pthread_mutex_unlock(&data_mutex);
+    
+    printf("Writer: All messages have been written\n");
+    return NULL;
+}
+
+// Reader thread function
+void *reader_thread(void *arg) {
+    char received_message[MAX_MESSAGE_LEN];
+    
+    while (1) {
+        pthread_mutex_lock(&data_mutex);
+        
+        // Wait for message to be ready or for writer to finish
+        while (!shared_data.message_ready && !shared_data.done) {
+            printf("Reader: Waiting for new message...\n");
+            pthread_cond_wait(&data_cond, &data_mutex);
+        }
+        
+        // Check if we're done
+        if (shared_data.done && !shared_data.message_ready) {
+            pthread_mutex_unlock(&data_mutex);
+            break;
+        }
+        
+        // Read from shared data
+        strncpy(received_message, shared_data.message, MAX_MESSAGE_LEN);
+        shared_data.message_ready = 0;  // Reset flag
+        
+        // Release mutex
+        pthread_mutex_unlock(&data_mutex);
+        
+        // Process the received message
+        printf("Reader: Received message: %s\n", received_message);
+    }
+    
+    printf("Reader: All messages have been read\n");
+    return NULL;
+}
+
+int main() {
+    pthread_t writer, reader;
+    
+    // Initialize mutex and condition variable
+    pthread_mutex_init(&data_mutex, NULL);
+    pthread_cond_init(&data_cond, NULL);
+    
+    // Initialize shared data
+    memset(&shared_data, 0, sizeof(shared_data_t));
+    
+    printf("Starting threads...\n");
+    
+    // Create threads
+    pthread_create(&writer, NULL, writer_thread, NULL);
+    pthread_create(&reader, NULL, reader_thread, NULL);
+    
+
+    pthread_join(writer, NULL);
+    pthread_join(reader, NULL);
+    
+
+    pthread_mutex_destroy(&data_mutex);
+    pthread_cond_destroy(&data_cond);
+    
+    printf("All threads have completed. Exiting.\n");
+    return 0;
+}
